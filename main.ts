@@ -1,134 +1,58 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { Plugin } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
+export default class MultiAsmPlugin extends Plugin {
+  private pollInterval: number;
 
-interface MyPluginSettings {
-	mySetting: string;
-}
+  onload() {
+    const setupInterval = setInterval(() => {
+      if (typeof CodeMirror !== 'undefined' && CodeMirror.defineSimpleMode) {
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
+        const asmMode = {
+          start: [
+            { regex: /;.*/, token: "comment" },
+            { regex: /\b(?:mov|add|sub|imul|idiv|mul|div|and|or|xor|not|neg|inc|dec|cmp|test|jmp|je|jne|jz|jnz|jg|jl|jge|jle|call|ret|push|pop|leave|lea|nop|int|syscall|cld|std|rep|repe|repne)\b/i, token: "keyword" },
+            { regex: /\b(?:rax|rbx|rcx|rdx|rsi|rdi|rsp|rbp|eax|ebx|ecx|edx|esi|edi|esp|ebp|ax|bx|cx|dx|si|di|sp|bp|al|bl|cl|dl|ah|bh|ch|dh|r8|r9|r1[0-5]|r8d|r9d|r1[0-5]d|r8w|r9w|r1[0-5]w|r8b|r9b|r1[0-5]b)\b/i, token: "register" },
+            {
+              regex: /\b(?:byte|word|dword|qword|tword|ptr)?\s*\[.*?\]/i,
+              token: "memory"
+            },
+            {
+              regex: /\b[A-Z_][A-Z0-9_]*\b/,
+              token: "constant"
+            },
+            {
+              regex: /\.(?:text|data|bss|rodata|section|globl|extern|align|org|type|size|endp|proc|code|stack|model|assume|db|dw|dd|dq|dt|equ|define|segment|ends|include)/i,
+              token: "directive"
+            },
+            { regex: /,/, token: "separator" },
+            { regex: /^\s*[a-zA-Z_][a-zA-Z0-9_]*:/, token: "label" },
+            { regex: /\b(?:0x[0-9A-Fa-f]+|(?:0[0-9A-Fa-f]*|[1-9][0-9A-Fa-f]*)h)\b/i, token: "hexadecimal" },
+            { regex: /^\-?\d[\d_]*(?:\.\d[\d_]*)?(?:[Ee]\-?\d[\d_]*)?/, token: "decimal" },
+          ]
+        };
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+        // 注册所有语法模式
+        CodeMirror.defineSimpleMode('asm', asmMode);
 
-	async onload() {
-		await this.loadSettings();
+        // 刷新编辑器视图
+        this.app.workspace.iterateAllLeaves(leaf => {
+          if (leaf.view?.getViewType() === 'markdown') {
+            (leaf.view as any).previewMode.rerender(true);
+          }
+        });
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+        clearInterval(setupInterval);
+        this.pollInterval = setupInterval;
+      }
+    }, 100);
+  }
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+  onunload() {
+    // 清理注册的模式
+    delete CodeMirror.modes['asm'];
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
-
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+    }
+  }
 }
